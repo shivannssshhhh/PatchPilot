@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        id: python
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install and test ShopLite
+        working-directory: sample_app
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pytest
+      - name: Test backend
+        working-directory: backend
+        env:
+          PATCHPILOT_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: ./mvnw -q test
+      - name: Build dashboard
+        working-directory: dashboard
+        run: |
+          npm ci
+          npm run build
