@@ -23,7 +23,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/incidents")
-@CrossOrigin(origins = {"http://localhost:5173", "http://127.0.0.1:5173"})
+@CrossOrigin(origins = "${patchpilot.dashboard-origin:http://localhost:5173}")
 public class IncidentController {
     private final IncidentService incidents;
     private final IncidentEvents events;

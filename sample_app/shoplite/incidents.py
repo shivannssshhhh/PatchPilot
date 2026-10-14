@@ -76,10 +76,15 @@ def build_incident(error: Exception, app: Flask, handler: TailLogHandler) -> dic
 
 def _send_incident(payload: dict[str, Any], app: Flask) -> None:
     endpoint = os.environ.get("PATCHPILOT_API_URL", "http://localhost:8000/api/incidents")
+    if not endpoint.startswith(("http://", "https://")):
+        endpoint = "https://" + endpoint.lstrip("/")
+    if not endpoint.endswith("/api/incidents"):
+        endpoint = endpoint.rstrip("/") + "/api/incidents"
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(endpoint, data=body, headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=1.0) as response:
+        timeout_seconds = float(os.environ.get("PATCHPILOT_DELIVERY_TIMEOUT_SECONDS", "1"))
+        with urllib.request.urlopen(req, timeout=timeout_seconds) as response:
             if response.status >= 400:
                 app.logger.warning("PatchPilot incident endpoint returned HTTP %s", response.status)
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:

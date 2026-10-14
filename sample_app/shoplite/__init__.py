@@ -21,6 +21,7 @@ def _configured_bugs() -> set[str]:
 def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     app = Flask(__name__)
     app.config.update(ACTIVE_BUGS=_configured_bugs(), TESTING=False)
+    app.config["DEMO_CONTROLS_ENABLED"] = os.environ.get("SHOPLITE_DEMO_CONTROLS", "true").lower() == "true"
     if test_config:
         app.config.update(test_config)
     app.config["ACTIVE_BUGS"] = set(app.config["ACTIVE_BUGS"]) & BUG_NAMES
@@ -30,7 +31,11 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     @app.after_request
     def allow_local_dashboard(response):
         origin = request.headers.get("Origin")
-        if origin in {"http://localhost:5173", "http://127.0.0.1:5173"}:
+        allowed_origins = {"http://localhost:5173", "http://127.0.0.1:5173"}
+        configured_origin = os.environ.get("SHOPLITE_DASHBOARD_ORIGIN")
+        if configured_origin:
+            allowed_origins.add(configured_origin.rstrip("/"))
+        if origin in allowed_origins:
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
             response.headers["Access-Control-Allow-Headers"] = "Content-Type"
@@ -118,6 +123,8 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     @app.route("/__demo/bugs", methods=["GET", "POST"])
     def demo_bugs():
         """Local-only demo control; do not expose this endpoint in a deployment."""
+        if not app.config["DEMO_CONTROLS_ENABLED"]:
+            return jsonify(error="demo controls are disabled"), 404
         if request.method == "GET":
             return jsonify(available=sorted(BUG_NAMES), active=sorted(app.config["ACTIVE_BUGS"]))
         payload = request.get_json(silent=True) or {}

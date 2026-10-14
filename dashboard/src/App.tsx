@@ -3,6 +3,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Activity, ArrowDownRight, ArrowUpRight, Check, ChevronDown, CircleHelp, Clock3, Command, ExternalLink, GitPullRequest, RefreshCw, Search, ShieldCheck, ShieldX, Sparkles, X } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const SHOPLITE = import.meta.env.VITE_SHOPLITE_URL || 'http://localhost:5000';
+const PRODUCTION_DEMO = import.meta.env.VITE_PRODUCTION_DEMO === 'true';
 type Incident = { id: string; status: string; payload: Record<string, any>; createdAt: string; updatedAt: string; declineReport?: string | null };
 type Detail = { incident: Incident; steps: { name: string; status: string; details: Record<string, any> }[]; artifacts: { type: string; content: any }[] };
 const stages = ['Capture', 'Triage', 'Reproduce', 'Patch', 'Verify', 'Score', 'Deliver', 'Review'];
@@ -76,18 +78,22 @@ export default function App() {
     setBusy(true);
     const bug = bugOptions.find(v => v.id === activeBug)!;
     try {
-      await fetch('http://localhost:5000/__demo/bugs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: [bug.id] }) });
-      await fetch(`http://localhost:5000${bug.path}`, { method: bug.method, headers: { 'Content-Type': 'application/json' }, body: bug.body ? JSON.stringify(bug.body) : undefined });
+      if (!PRODUCTION_DEMO) {
+        const configured = await fetch(`${SHOPLITE}/__demo/bugs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: [bug.id] }) });
+        if (!configured.ok) throw new Error('ShopLite did not accept the demo scenario');
+      }
+      const response = await fetch(`${SHOPLITE}${bug.path}`, { method: bug.method, headers: { 'Content-Type': 'application/json' }, body: bug.body ? JSON.stringify(bug.body) : undefined });
+      if (response.status < 400) throw new Error('The seeded bug did not reproduce');
       await refresh(); setToast(`${bug.label} bug triggered. Incident capture may take a moment.`); setDemoOpen(false);
-    } catch { setToast('Could not reach ShopLite at localhost:5000. Start the sample app and try again.'); }
+    } catch (e) { setToast(e instanceof Error ? e.message : `Could not reach ShopLite at ${SHOPLITE}.`); }
     finally { setBusy(false); }
   };
   const resetDemo = async () => {
     try {
-      const response = await fetch('http://localhost:5000/__demo/bugs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: [] }) });
+      const response = await fetch(`${SHOPLITE}/__demo/bugs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: [] }) });
       if (!response.ok) throw new Error('ShopLite did not accept the reset');
       setToast('Seeded bugs disabled. Incident history is unchanged.');
-    } catch { setToast('Could not reach ShopLite at localhost:5000.'); }
+    } catch { setToast(`Could not reach ShopLite at ${SHOPLITE}.`); }
   };
 
   const statusIndex: Record<string, number> = { captured: 0, triaging: 1, reproducing: 2, patching: 3, verifying: 4, scoring: 5, ready_for_review: 7, approved: 7, rejected: 7, failed: 2, declined: 2 };
@@ -114,7 +120,7 @@ export default function App() {
     <main className="main">
       <header className="topbar"><div className="breadcrumbs">Workspace <span>/</span> <b>Overview</b></div><div className="top-actions"><span className={`connection ${apiState}`}><i/> API {apiState}</span><button className="icon-btn" title="Refresh" onClick={() => void refresh()}><RefreshCw size={16}/></button><button className="help-button"><CircleHelp size={16}/> Help</button></div></header>
       <div className="content">
-        <div className="page-heading"><div><div className="eyebrow">TUESDAY, {new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}).toUpperCase()}</div><h1>Good evening, builder <span>✦</span></h1><p>Keep your app healthy. Review every proposed fix with evidence.</p></div><button className="primary-btn" onClick={() => setDemoOpen(true)}><Sparkles size={16}/> Trigger a demo bug</button></div>
+        <div className="page-heading"><div><div className="eyebrow">{new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'}).toUpperCase()}</div><h1>Good evening, builder <span>✦</span></h1><p>Keep your app healthy. Review every proposed fix with evidence.</p></div><button className="primary-btn" onClick={() => setDemoOpen(true)}><Sparkles size={16}/> Trigger a demo bug</button></div>
         <section className="stats-grid">
           <Stat icon={<Activity size={16}/>} label="Incidents today" value={today} foot="From ShopLite" tone="cyan" trend={<ArrowUpRight size={14}/>}/>
           <Stat icon={<GitPullRequest size={16}/>} label="Ready for review" value={reviewCount} foot="Human decision needed" tone="violet" trend={<Clock3 size={14}/>}/>
@@ -154,7 +160,7 @@ export default function App() {
         <div className="disclaimer"><ShieldCheck size={14}/> Known seeded bugs use deterministic replay fixes, not a live LLM. Every proposed diff still needs human approval.</div>
       </div>
     </main>
-    <AnimatePresence>{demoOpen&&<><motion.div className="scrim" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} onClick={()=>setDemoOpen(false)}/><motion.aside className="demo-drawer" initial={{x:420}} animate={{x:0}} exit={{x:420}} transition={{type:'spring',damping:28}}><div className="drawer-head"><div><span className="eyebrow">LOCAL DEMO</span><h2>Break the app</h2></div><button className="icon-btn" onClick={()=>setDemoOpen(false)}><X size={18}/></button></div><p>Trigger a seeded ShopLite error. PatchPilot will capture it in the incident feed.</p><label className="field-label">CHOOSE A SCENARIO</label><div className="bug-options">{bugOptions.map(b=><button key={b.id} className={activeBug===b.id?'bug-option chosen':'bug-option'} onClick={()=>setActiveBug(b.id)}><span className="radio"/><span><b>{b.label}</b><small>{b.method} {b.path}</small></span>{b.id==='payments'&&<em>REFUSAL</em>}</button>)}</div><div className="drawer-callout"><ShieldCheck size={17}/><span>Payment errors are sensitive. The intended behavior is to refuse unsafe fixes.</span></div><button className="primary-btn drawer-trigger" disabled={busy} onClick={()=>void trigger()}><Sparkles size={16}/> {busy?'Triggering…':'Trigger selected bug'}</button><button className="subtle-btn drawer-reset" onClick={()=>void resetDemo()}><RefreshCw size={14}/> Reset demo switches</button><small className="drawer-foot">Requires ShopLite on localhost:5000 and API on localhost:8000.</small></motion.aside></>}</AnimatePresence>
+    <AnimatePresence>{demoOpen&&<><motion.div className="scrim" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} onClick={()=>setDemoOpen(false)}/><motion.aside className="demo-drawer" initial={{x:420}} animate={{x:0}} exit={{x:420}} transition={{type:'spring',damping:28}}><div className="drawer-head"><div><span className="eyebrow">{PRODUCTION_DEMO?'HOSTED DEMO':'LOCAL DEMO'}</span><h2>Break the app</h2></div><button className="icon-btn" onClick={()=>setDemoOpen(false)}><X size={18}/></button></div><p>Trigger a seeded ShopLite error. PatchPilot will capture it in the incident feed.</p><label className="field-label">CHOOSE A SCENARIO</label><div className="bug-options">{(PRODUCTION_DEMO?bugOptions.filter(b=>b.id==='pagination'):bugOptions).map(b=><button key={b.id} className={activeBug===b.id?'bug-option chosen':'bug-option'} onClick={()=>setActiveBug(b.id)}><span className="radio"/><span><b>{b.label}</b><small>{b.method} {b.path}</small></span>{b.id==='payments'&&<em>REFUSAL</em>}</button>)}</div><div className="drawer-callout"><ShieldCheck size={17}/><span>Payment errors are sensitive. The intended behavior is to refuse unsafe fixes.</span></div><button className="primary-btn drawer-trigger" disabled={busy} onClick={()=>void trigger()}><Sparkles size={16}/> {busy?'Triggering…':'Trigger selected bug'}</button>{!PRODUCTION_DEMO&&<button className="subtle-btn drawer-reset" onClick={()=>void resetDemo()}><RefreshCw size={14}/> Reset demo switches</button>}<small className="drawer-foot">ShopLite: {SHOPLITE}</small></motion.aside></>}</AnimatePresence>
     <AnimatePresence>{toast&&<motion.div className="toast" initial={{y:20,opacity:0}} animate={{y:0,opacity:1}} exit={{y:12,opacity:0}}><Activity size={15}/>{toast}</motion.div>}</AnimatePresence>
   </div>;
 }

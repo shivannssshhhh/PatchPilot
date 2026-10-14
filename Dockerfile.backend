@@ -1,0 +1,18 @@
+FROM maven:3.9-eclipse-temurin-17 AS build
+WORKDIR /workspace
+COPY backend /workspace/backend
+RUN mvn -q -f backend/pom.xml -DskipTests package
+
+FROM python:3.11-slim
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+RUN apt-get update && apt-get install -y --no-install-recommends openjdk-17-jre-headless \
+    && rm -rf /var/lib/apt/lists/* \
+    && python -m pip install --no-cache-dir Flask==3.1.3 pytest==9.1.1
+WORKDIR /app
+COPY --from=build /workspace/backend/target/patchpilot-backend-0.1.0-SNAPSHOT.jar /app/app.jar
+COPY sample_app /app/sample_app
+COPY demo/replay_cache /app/demo/replay_cache
+ENV PATCHPILOT_SAMPLE_APP_PATH=/app/sample_app \
+    PATCHPILOT_REPLAY_CACHE_PATH=/app/demo/replay_cache \
+    PATCHPILOT_PYTHON=python
+CMD ["sh", "-c", "java -XX:MaxRAMPercentage=60 -XX:InitialRAMPercentage=20 -jar /app/app.jar --server.port=${PORT:-8080}"]

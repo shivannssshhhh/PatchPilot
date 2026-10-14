@@ -1,0 +1,51 @@
+services:
+  - type: web
+    name: patchpilot-ff26-api
+    region: singapore
+    plan: free
+    runtime: docker
+    dockerfilePath: ./Dockerfile.backend
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: PATCHPILOT_DASHBOARD_ORIGIN
+        value: https://patchpilot-ff26-dashboard.onrender.com
+      - key: SANDBOX_MODE
+        value: local
+      - key: PATCHPILOT_PIPELINE_DELAY_MS
+        value: "350"
+
+  - type: web
+    name: patchpilot-ff26-shoplite
+    region: singapore
+    plan: free
+    runtime: docker
+    rootDir: sample_app
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: SHOPLITE_BUGS
+        value: pagination
+      - key: SHOPLITE_DEMO_CONTROLS
+        value: "false"
+      - key: PATCHPILOT_API_URL
+        value: https://patchpilot-ff26-api.onrender.com/api/incidents
+      - key: PATCHPILOT_DELIVERY_TIMEOUT_SECONDS
+        value: "60"
+      - key: SHOPLITE_DASHBOARD_ORIGIN
+        value: https://patchpilot-ff26-dashboard.onrender.com
+
+  - type: web
+    name: patchpilot-ff26-dashboard
+    runtime: static
+    rootDir: dashboard
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://patchpilot-ff26-api.onrender.com
+      - key: VITE_SHOPLITE_URL
+        value: https://patchpilot-ff26-shoplite.onrender.com
+      - key: VITE_PRODUCTION_DEMO
+        value: "true"

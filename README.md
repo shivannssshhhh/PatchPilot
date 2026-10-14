@@ -86,6 +86,14 @@ npm ci
 npm run build
 ```
 
+## Hosted demo deployment
+
+`render.yaml` defines the React dashboard, Spring API, and ShopLite demo service. Connect the repository to Render and create a Blueprint from this file. The hosted demo keeps one known pagination bug enabled and disables ShopLite's local scenario-switch endpoint; the dashboard's demo button calls the hosted ShopLite service. Local runs continue to use the scenario controls.
+
+The Blueprint uses free web services for a hackathon preview. They can sleep when idle, and the SQLite file uses the service's ephemeral filesystem, so incident history is not durable across a rebuild or restart. Render documents free services as intended for previews rather than production workloads. Do not use this setup for customer data or production operations. Set a permanent SQLite disk or migrate to a managed database and paid service plans before relying on persistent data.
+
+Verify the deploy by checking `/api/health` on the API and `/health` on ShopLite, loading the dashboard, triggering the pagination scenario, and confirming the incident reaches `ready_for_review` with a downloadable patch.
+
 ## Sandbox
 
 Sandbox mode defaults to `auto`: Docker is used if its daemon is available; otherwise pytest runs in a time-limited temporary copy. Docker test containers disable networking and set CPU, memory, process, and filesystem limits. The local subprocess fallback does not provide network isolation and is intended only for the trusted ShopLite demo. Docker execution has not been validated on every host.

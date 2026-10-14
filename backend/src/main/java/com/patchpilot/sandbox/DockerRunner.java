@@ -94,7 +94,7 @@ public class DockerRunner {
         Process inspect = new ProcessBuilder(dockerExecutable, "image", "inspect", image).redirectErrorStream(true).start();
         if (inspect.waitFor(10, TimeUnit.SECONDS) && inspect.exitValue() == 0) return;
         List<String> build = new ArrayList<>(List.of(dockerExecutable, "build", "-t", image, "-f",
-                sampleApp.resolve("Dockerfile").toString(), sampleApp.toString()));
+                sampleApp.resolve("Dockerfile.sandbox").toString(), sampleApp.toString()));
         Process process = new ProcessBuilder(build).redirectErrorStream(true).start();
         CompletableFuture<String> output = CompletableFuture.supplyAsync(() -> readOutput(process));
         if (!process.waitFor(180, TimeUnit.SECONDS)) {
