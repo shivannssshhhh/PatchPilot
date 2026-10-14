@@ -60,6 +60,27 @@ class IncidentApiTest {
         assertThat(list.getBody()).anySatisfy(row -> assertThat(((Map) row).get("id")).isEqualTo(id));
     }
 
+    @Test
+    void paymentIncidentsAreDeclinedWithAnHonestReport() throws InterruptedException {
+        Map<String, Object> payload = Map.of(
+                "exceptionType", "RuntimeException",
+                "message", "payment processor simulation failed",
+                "request", Map.of("method", "POST", "path", "/payments/charge"));
+        ResponseEntity<Map> created = rest.postForEntity("/api/incidents", payload, Map.class);
+        String id = (String) created.getBody().get("id");
+
+        for (int attempt = 0; attempt < 60; attempt++) {
+            ResponseEntity<Map> response = rest.getForEntity("/api/incidents/{id}", Map.class, id);
+            Map incident = (Map) response.getBody().get("incident");
+            if ("declined".equals(incident.get("status"))) {
+                assertThat(incident.get("declineReport").toString()).contains("payments path");
+                return;
+            }
+            Thread.sleep(25);
+        }
+        throw new AssertionError("Payment incident did not receive its refusal report");
+    }
+
     private void awaitTerminalStatus(String id) throws InterruptedException {
         for (int attempt = 0; attempt < 60; attempt++) {
             ResponseEntity<Map> response = rest.getForEntity("/api/incidents/{id}", Map.class, id);
