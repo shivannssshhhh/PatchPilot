@@ -24,7 +24,8 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     if test_config:
         app.config.update(test_config)
     app.config["ACTIVE_BUGS"] = set(app.config["ACTIVE_BUGS"]) & BUG_NAMES
-    install_error_reporting(app)
+    if not app.config.get("DISABLE_ERROR_REPORTING", False):
+        install_error_reporting(app)
 
     @app.after_request
     def allow_local_dashboard(response):

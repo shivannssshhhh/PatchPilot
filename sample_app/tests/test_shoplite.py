@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -40,6 +41,10 @@ def test_each_seeded_bug_returns_an_incident(
     monkeypatch.setattr("shoplite.incidents._send_incident", lambda report, _app: reports.append(report))
     client.post("/__demo/bugs", json={"active": [bug]})
     response = getattr(client, method)(path, json=payload) if payload else getattr(client, method)(path)
+    if os.environ.get("PATCHPILOT_FIXED_BUG") == bug:
+        assert response.status_code == 200
+        assert reports == []
+        return
     assert response.status_code == 500
     assert response.json == {"error": "internal server error", "incident": "captured"}
     assert reports[0]["exceptionType"] == exception

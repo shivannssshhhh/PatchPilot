@@ -1,0 +1,9 @@
+{
+  "bugId": "discount",
+  "filePath": "shoplite/__init__.py",
+  "expected": "            rate = discounts[\"FORG10\"]",
+  "replacement": "            rate = discounts[\"FORGE10\"]",
+  "explanation": "Use the valid promotion code key already present in the discounts table.",
+  "expectedExceptionType": "KeyError",
+  "confidence": 0.92
+}

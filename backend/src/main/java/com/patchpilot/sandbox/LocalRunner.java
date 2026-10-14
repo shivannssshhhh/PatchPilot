@@ -21,6 +21,7 @@ public class LocalRunner {
     private static final Set<String> SKIP_DIRS = Set.of(".venv", ".pytest_cache", "__pycache__", ".git");
     private static final String REPRO_TEST = """
             import os
+            import pytest
             from shoplite import create_app
 
             BUG_CASES = {
@@ -31,13 +32,47 @@ public class LocalRunner {
                 "payments": ("POST", "/payments/charge", {"amount": 5}),
             }
 
+            EXCEPTIONS = {
+                "users": KeyError,
+                "pagination": TypeError,
+                "discount": KeyError,
+                "inventory": ZeroDivisionError,
+            }
+
+            def test_incident_exception_type_matches():
+                bug = os.environ["SHOPLITE_REPRO_BUG"]
+                method, path, payload = BUG_CASES[bug]
+                client = create_app({"TESTING": True, "DISABLE_ERROR_REPORTING": True, "ACTIVE_BUGS": {bug}}).test_client()
+                with pytest.raises(EXCEPTIONS[bug]):
+                    client.open(path, method=method, json=payload)
+
             def test_incident_reproduces_as_http_error():
+                bug = os.environ["SHOPLITE_REPRO_BUG"]
+                method, path, payload = BUG_CASES[bug]
+                client = create_app({"TESTING": False, "DISABLE_ERROR_REPORTING": True, "ACTIVE_BUGS": {bug}}).test_client()
+                response = client.open(path, method=method, json=payload)
+                assert response.status_code == 200, (
+                    f"Expected healthy response for reproduction check, got {response.status_code}"
+                )
+            """;
+    private static final String VERIFY_TEST = """
+            import os
+            from shoplite import create_app
+
+            BUG_CASES = {
+                "users": ("GET", "/users/1", None),
+                "pagination": ("GET", "/orders?page=2", None),
+                "discount": ("POST", "/cart/discount", {"code": "FORGE10", "subtotal": 10}),
+                "inventory": ("POST", "/inventory/sync", {"items": []}),
+            }
+
+            def test_patch_restores_incident_route():
                 bug = os.environ["SHOPLITE_REPRO_BUG"]
                 method, path, payload = BUG_CASES[bug]
                 client = create_app({"TESTING": False, "ACTIVE_BUGS": {bug}}).test_client()
                 response = client.open(path, method=method, json=payload)
                 assert response.status_code == 200, (
-                    f"Expected healthy response for reproduction check, got {response.status_code}"
+                    f"Expected patched route to return 200, got {response.status_code}"
                 )
             """;
 
@@ -85,6 +120,28 @@ public class LocalRunner {
         Files.writeString(workspace.resolve("tests/test_patchpilot_repro.py"), REPRO_TEST, StandardCharsets.UTF_8);
     }
 
+    public void addFixVerificationTest(Path workspace, String bug) throws IOException {
+        if (!Set.of("users", "pagination", "discount", "inventory").contains(bug)) {
+            throw new IllegalArgumentException("Unknown fixable seeded bug: " + bug);
+        }
+        Files.writeString(workspace.resolve("tests/test_patchpilot_repro.py"), VERIFY_TEST, StandardCharsets.UTF_8);
+    }
+
+    public SandboxResult runWorkspace(Path workspace, String reproductionBug, boolean verifyFix) {
+        long start = System.nanoTime();
+        try {
+            if (reproductionBug != null) {
+                if (verifyFix) addFixVerificationTest(workspace, reproductionBug);
+                else addReproductionTest(workspace, reproductionBug);
+            }
+            return runPytest(workspace, reproductionBug, verifyFix, start);
+        } catch (Exception exception) {
+            String message = exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage();
+            return new SandboxResult("local", -1, false,
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start), message, pythonExecutable + " -m pytest");
+        }
+    }
+
     private SandboxResult run(List<String> testArguments, String reproductionBug) {
         long start = System.nanoTime();
         Path copy = null;
@@ -92,14 +149,27 @@ public class LocalRunner {
             copy = Files.createTempDirectory("patchpilot-sandbox-");
             copyTree(sampleApp, copy);
             if (reproductionBug != null) addReproductionTest(copy, reproductionBug);
+            return runPytest(copy, reproductionBug, false, start);
+        } catch (Exception exception) {
+            String message = exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage();
+            return new SandboxResult("local", -1, false,
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start), message,
+                    pythonExecutable + " -m pytest");
+        } finally {
+            if (copy != null) deleteTree(copy);
+        }
+    }
+
+    private SandboxResult runPytest(Path workspace, String reproductionBug, boolean verifyFix, long start) throws Exception {
             List<String> command = new java.util.ArrayList<>();
             command.add(pythonExecutable);
             command.add("-m");
             command.add("pytest");
-            command.addAll(testArguments);
-            ProcessBuilder builder = new ProcessBuilder(command).directory(copy.toFile()).redirectErrorStream(true);
+            command.add("-q");
+            ProcessBuilder builder = new ProcessBuilder(command).directory(workspace.toFile()).redirectErrorStream(true);
             builder.environment().put("PATCHPILOT_API_URL", "http://127.0.0.1:9/api/incidents");
             if (reproductionBug != null) builder.environment().put("SHOPLITE_REPRO_BUG", reproductionBug);
+            if (verifyFix && reproductionBug != null) builder.environment().put("PATCHPILOT_FIXED_BUG", reproductionBug);
             Process process = builder.start();
             CompletableFuture<String> output = CompletableFuture.supplyAsync(() -> readOutput(process));
             boolean completed = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
@@ -112,14 +182,6 @@ public class LocalRunner {
             return new SandboxResult("local", exitCode, !completed,
                     TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start), captured,
                     String.join(" ", command));
-        } catch (Exception exception) {
-            String message = exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage();
-            return new SandboxResult("local", -1, false,
-                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start), message,
-                    pythonExecutable + " -m pytest");
-        } finally {
-            if (copy != null) deleteTree(copy);
-        }
     }
 
     private void copyTree(Path source, Path target) throws IOException {

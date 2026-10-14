@@ -8,13 +8,13 @@
 
 ## Description
 
-Small teams can spend hours finding, reproducing, and triaging application bugs. PatchPilot is a supervised self-healing prototype that captures redacted error reports from a demo shop app, stores them in a Java backend, and streams their status to a dashboard. A local sandbox runner can execute the sample app's pytest suite in a temporary copy, with a network-disabled Docker option. The dashboard includes a live incident feed, evidence details, status updates, and controls for demonstrating seeded failures.
+Small teams can spend hours finding, reproducing, and triaging application bugs. PatchPilot is a supervised repair prototype that captures redacted error reports from a demo shop app, stores them in a Java backend, and streams their status to a dashboard. For four known seeded bugs, a prompt-hash replay fixture supplies a small patch. PatchPilot first confirms a failing regression case, applies the patch only to a temporary copy, and runs the full pytest suite plus the regression check before making the diff available for review. The sandbox has a network-disabled Docker option.
 
-Safety is a core design goal: payment incidents are declined, and the current build never claims an incident is fixed. Automated LLM triage, test generation, patch verification, risk scoring, and pull-request delivery remain future work. The project demonstrates the trustworthy incident-capture and review foundation, not a finished autonomous repair agent.
+Safety is a core design goal: payment incidents are declined, and no patch is marked ready without reproduction and verification evidence. The replay fixtures are deterministic; the current build does not call a live LLM or support arbitrary projects. Risk scoring is basic, and local Git branch and pull-request delivery remain future work. The project is a working prototype, not a finished autonomous repair agent.
 
 ## Challenge and what is next
 
-The main challenge is preserving trust when a tool handles production-like errors. PatchPilot redacts common email and secret patterns, isolates sandbox execution, and makes a human review part of the workflow. Next, we plan to add deterministic replay fixtures, a provider interface, reproduce-first tests, verified minimal patches, risk scoring, and local patch delivery before connecting any live LLM or GitHub integration.
+The main challenge is preserving trust when a tool handles production-like errors. PatchPilot redacts common email and secret patterns, isolates sandbox execution, and makes a human review part of the workflow. Next, we plan to add live provider adapters, robust patch validation and risk policies, local branch creation, and GitHub draft PR delivery.
 
 ## Links to add before submitting
 

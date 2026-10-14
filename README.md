@@ -4,7 +4,7 @@
 
 PatchPilot is a supervised bug-repair prototype. ShopLite sends a redacted incident to a Java API, which stores it and streams status changes to a React dashboard. The dashboard lets a reviewer inspect the incident and retry or reject it. Sensitive payment incidents are declined.
 
-> **Prototype status:** incident capture, SQLite persistence, SSE updates, the ShopLite demo, a constrained sandbox runner, and the dashboard are implemented. Automated LLM diagnosis, test generation, patching, verification, risk scoring, GitHub delivery, and replay mode are **not implemented**. The pipeline therefore ends in `failed` (or `declined` for payment incidents) and never claims an incident is fixed. Do not use this build on production systems.
+> **Prototype status:** deterministic replay fixtures support four known ShopLite bugs. For those cases, the backend checks the reported exception, confirms a failing reproduction in a temporary copy, applies a cached minimal edit there, runs the suite and regression check, calculates a basic risk score, and offers the verified diff for human review. Payment incidents are declined. There is no live LLM adapter, arbitrary-project support, local Git branch creation, or GitHub PR delivery. This is a hackathon demo, not a production repair service.
 
 ## Architecture
 
@@ -62,6 +62,14 @@ npm run dev
 
 Open `http://localhost:5173`. The dashboard calls the API on port 8000 and ShopLite on port 5000. Keep all three processes running. The demo controls are local-only and intended for localhost.
 
+## API
+
+- `POST /api/incidents` captures a redacted incident; `GET /api/incidents` lists incidents.
+- `GET /api/incidents/{id}` returns incident details, pipeline steps, and evidence artifacts.
+- `GET /api/incidents/events` and `/api/incidents/{id}/events` stream status changes over SSE.
+- `GET /api/incidents/{id}/patch` downloads a patch only after replay, reproduction, and full-suite verification succeed.
+- `POST /api/incidents/{id}/approve`, `/reject`, and `/retry` record review actions.
+
 ## Tests and build
 
 ```powershell
@@ -84,7 +92,7 @@ Sandbox mode defaults to `auto`: Docker is used if its daemon is available; othe
 
 ## Safety and scope
 
-- ShopLite removes common email and secret patterns before sending incident payloads.
+- ShopLite and the backend redact common email and secret patterns before storing incident payloads.
 - PatchPilot does not push to a default branch, open a pull request, deploy, or apply a patch to the original sample app.
 - No API keys are required by this prototype. Never commit real credentials.
 - A passing test suite is not proof that a change is correct; human review remains required.
@@ -97,8 +105,8 @@ Sandbox mode defaults to `auto`: Docker is used if its daemon is available; othe
 | 1. ShopLite and incident capture | Implemented; pytest was passing in local checks |
 | 2. Java API, persistence, and SSE | Implemented; API integration checks were passing in local checks |
 | 3. Local/Docker sandbox runner | Implemented; local runner checked; Docker daemon path still needs a live run |
-| 4. Provider-agnostic LLM and reproduce step | Not implemented |
-| 5. Patch, verify, risk score, and refusal policy | Payment refusal is a basic route guard; patch/verification/risk model are not implemented |
-| 6. Local patch or draft PR delivery | Not implemented |
-| 7. React incident dashboard | Implemented as an incident viewer and demo control; no diff/review artifact UI yet |
-| 8. Replay demo, CI, compose, and polish | Partially implemented; no replay cache, compose startup, CI, or screenshots yet |
+| 4. Provider-agnostic LLM and reproduce step | Partial: prompt-hash replay provider and reproduce-first check for four fixtures; no live model adapters or retries |
+| 5. Patch, verify, risk score, and refusal policy | Partial: allowlisted replay patch, sandbox suite/regression verification, basic risk score, and payment refusal; no general diff validator or comprehensive policy model |
+| 6. Local patch or draft PR delivery | Partial: verified patch downloads from the API; no local Git branch or draft PR creation |
+| 7. React incident dashboard | Partial: live feed, detail/evidence, demo controls, status actions, basic risk gauge, and patch download; no settings, terminal, diff viewer, or command palette |
+| 8. Replay demo, CI, compose, and polish | Partial: deterministic fixtures, walkthrough, CI, MIT license, and setup docs; no compose startup or recorded screenshots/video |

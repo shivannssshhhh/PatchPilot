@@ -46,9 +46,16 @@ public class DockerRunner {
     }
 
     public SandboxResult run(Path workspace, String reproductionBug) {
+        return run(workspace, reproductionBug, false);
+    }
+
+    public SandboxResult run(Path workspace, String reproductionBug, boolean verifyFix) {
         long start = System.nanoTime();
         try {
-            if (reproductionBug != null) localRunner.addReproductionTest(workspace, reproductionBug);
+            if (reproductionBug != null) {
+                if (verifyFix) localRunner.addFixVerificationTest(workspace, reproductionBug);
+                else localRunner.addReproductionTest(workspace, reproductionBug);
+            }
         } catch (IOException exception) {
             return new SandboxResult("docker", -1, false, 0, exception.getMessage(), "prepare sandbox workspace");
         }
@@ -57,6 +64,7 @@ public class DockerRunner {
                 "--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
                 "-e", "PATCHPILOT_API_URL=http://127.0.0.1:9/api/incidents"));
         if (reproductionBug != null) command.addAll(List.of("-e", "SHOPLITE_REPRO_BUG=" + reproductionBug));
+        if (verifyFix && reproductionBug != null) command.addAll(List.of("-e", "PATCHPILOT_FIXED_BUG=" + reproductionBug));
         command.addAll(List.of("-v", workspace.toAbsolutePath().normalize() + ":/workspace:rw", image, "-q"));
         try {
             ensureImage();

@@ -6,6 +6,8 @@ import com.patchpilot.pipeline.IncidentEvents;
 import com.patchpilot.service.IncidentService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -40,6 +42,15 @@ public class IncidentController {
 
     @GetMapping("/{id}")
     public IncidentDetail detail(@PathVariable String id) { return incidents.detail(id); }
+
+    @GetMapping(value = "/{id}/patch", produces = MediaType.TEXT_PLAIN_VALUE)
+    public ResponseEntity<String> patch(@PathVariable String id) {
+        String patch = incidents.patch(id);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=patchpilot-" + id + ".patch")
+                .contentType(MediaType.TEXT_PLAIN)
+                .body(patch);
+    }
 
     @GetMapping(path = "/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamAll() { return events.subscribe(null); }

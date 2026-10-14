@@ -1,0 +1,9 @@
+{
+  "bugId": "pagination",
+  "filePath": "shoplite/__init__.py",
+  "expected": "            start = page_value * 2",
+  "replacement": "            start = (max(1, int(page_value)) - 1) * 2",
+  "explanation": "Convert the page parameter to an integer and calculate a zero-based page offset before slicing.",
+  "expectedExceptionType": "TypeError",
+  "confidence": 0.93
+}

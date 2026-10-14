@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.datasource.url=jdbc:sqlite:file:patchpilot-test?mode=memory&cache=shared",
-        "patchpilot.pipeline.delay-ms=20"
+        "patchpilot.pipeline.delay-ms=0"
 })
 class IncidentApiTest {
     @Autowired
@@ -29,12 +29,12 @@ class IncidentApiTest {
     }
 
     @Test
-    void capturePersistsIncidentStepsAndPayloadArtifact() throws InterruptedException {
+    void capturePersistsIncidentStepsAndPayloadArtifact() throws Exception {
         Map<String, Object> payload = Map.of(
-                "exceptionType", "ValueError",
-                "message", "bad sample input",
+                "exceptionType", "TypeError",
+                "message", "slice indices must be integers",
                 "stackTrace", "traceback text",
-                "request", Map.of("method", "GET", "path", "/orders", "params", Map.of("page", "bad")),
+                "request", Map.of("method", "GET", "path", "/orders", "params", Map.of("page", "2")),
                 "logs", java.util.List.of("sample log"));
 
         ResponseEntity<Map> created = rest.postForEntity("/api/incidents", payload, Map.class);
@@ -48,13 +48,19 @@ class IncidentApiTest {
         Map incident = (Map) detail.getBody().get("incident");
         assertThat(incident.get("id")).isEqualTo(id);
         assertThat(incident.get("payload")).isEqualTo(payload);
-        awaitTerminalStatus(id);
+        awaitReadyForReview(id);
         detail = rest.getForEntity("/api/incidents/{id}", Map.class, id);
         incident = (Map) detail.getBody().get("incident");
-        assertThat(incident.get("status")).isEqualTo("failed");
+        assertThat(incident.get("status")).isEqualTo("ready_for_review");
         java.util.List<Map> steps = (java.util.List<Map>) detail.getBody().get("steps");
-        assertThat(steps).extracting(step -> step.get("name")).contains("triaging", "failed");
-        assertThat((java.util.List<?>) detail.getBody().get("artifacts")).hasSize(2);
+        assertThat(steps).extracting(step -> step.get("name")).contains("triaging", "reproducing", "patching", "verifying", "scoring", "ready_for_review");
+        assertThat((java.util.List<?>) detail.getBody().get("artifacts")).hasSize(4);
+
+        ResponseEntity<String> patch = rest.getForEntity("/api/incidents/{id}/patch", String.class, id);
+        assertThat(patch.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(patch.getHeaders().getFirst("Content-Disposition")).contains("attachment");
+        assertThat(patch.getBody()).contains("start = page_value * 2", "start = (max(1, int(page_value)) - 1) * 2");
+        assertPatchAppliesFromRepositoryRoot(patch.getBody());
 
         ResponseEntity<java.util.List> list = rest.exchange("/api/incidents", HttpMethod.GET, HttpEntity.EMPTY, java.util.List.class);
         assertThat(list.getBody()).anySatisfy(row -> assertThat(((Map) row).get("id")).isEqualTo(id));
@@ -81,13 +87,62 @@ class IncidentApiTest {
         throw new AssertionError("Payment incident did not receive its refusal report");
     }
 
-    private void awaitTerminalStatus(String id) throws InterruptedException {
-        for (int attempt = 0; attempt < 60; attempt++) {
+    @Test
+    void supportedReplayFixturesPrepareVerifiedPatches() throws Exception {
+        java.util.List<Map<String, Object>> cases = java.util.List.of(
+                Map.of("exceptionType", "KeyError", "message", "'naem'", "request", Map.of("path", "/users/1")),
+                Map.of("exceptionType", "KeyError", "message", "'FORG10'", "request", Map.of("path", "/cart/discount")),
+                Map.of("exceptionType", "ZeroDivisionError", "message", "integer division or modulo by zero", "request", Map.of("path", "/inventory/sync")));
+        for (Map<String, Object> payload : cases) {
+            ResponseEntity<Map> created = rest.postForEntity("/api/incidents", payload, Map.class);
+            String id = (String) created.getBody().get("id");
+            awaitReadyForReview(id);
+            ResponseEntity<String> patch = rest.getForEntity("/api/incidents/{id}/patch", String.class, id);
+            assertThat(patch.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(patch.getBody()).contains("--- a/sample_app/shoplite/__init__.py", "+++ b/sample_app/shoplite/__init__.py");
+            assertPatchAppliesFromRepositoryRoot(patch.getBody());
+        }
+    }
+
+    @Test
+    void backendRedactsSecretsAndEmailsBeforePersistence() {
+        Map<String, Object> payload = Map.of(
+                "message", "token=abc123 contact a.user@example.test",
+                "logs", java.util.List.of("password: hunter2"));
+        ResponseEntity<Map> created = rest.postForEntity("/api/incidents", payload, Map.class);
+        String id = (String) created.getBody().get("id");
+        ResponseEntity<Map> detail = rest.getForEntity("/api/incidents/{id}", Map.class, id);
+        String serialized = detail.getBody().toString();
+
+        assertThat(serialized).doesNotContain("abc123", "hunter2", "a.user@example.test");
+        assertThat(serialized).contains("[REDACTED]", "[REDACTED-EMAIL]");
+    }
+
+    private void awaitReadyForReview(String id) throws InterruptedException {
+        for (int attempt = 0; attempt < 200; attempt++) {
             ResponseEntity<Map> response = rest.getForEntity("/api/incidents/{id}", Map.class, id);
             Map incident = (Map) response.getBody().get("incident");
-            if ("failed".equals(incident.get("status")) || "declined".equals(incident.get("status"))) return;
-            Thread.sleep(25);
+            if ("ready_for_review".equals(incident.get("status"))) return;
+            if ("failed".equals(incident.get("status")) || "declined".equals(incident.get("status"))) {
+                throw new AssertionError("Pipeline ended early: " + incident.get("declineReport") + " artifacts=" + response.getBody().get("artifacts"));
+            }
+            Thread.sleep(50);
         }
-        throw new AssertionError("Honest stub pipeline did not reach a terminal status in time");
+        throw new AssertionError("Replay repair pipeline did not prepare a verified patch in time");
+    }
+
+    private void assertPatchAppliesFromRepositoryRoot(String patch) throws Exception {
+        java.nio.file.Path patchFile = java.nio.file.Files.createTempFile("patchpilot-", ".patch");
+        try {
+            java.nio.file.Files.writeString(patchFile, patch);
+            Process process = new ProcessBuilder("git", "apply", "--check", patchFile.toString())
+                    .directory(java.nio.file.Path.of("..").toAbsolutePath().normalize().toFile())
+                    .redirectErrorStream(true).start();
+            assertThat(process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            String output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            assertThat(process.exitValue()).as(output + "\nPATCH:\n" + patch).isZero();
+        } finally {
+            java.nio.file.Files.deleteIfExists(patchFile);
+        }
     }
 }

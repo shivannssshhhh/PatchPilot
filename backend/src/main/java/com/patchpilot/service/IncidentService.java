@@ -5,7 +5,7 @@ import com.patchpilot.model.Incident;
 import com.patchpilot.model.IncidentDetail;
 import com.patchpilot.model.PipelineStep;
 import com.patchpilot.pipeline.IncidentEvents;
-import com.patchpilot.pipeline.StubPipeline;
+import com.patchpilot.pipeline.RepairPipeline;
 import com.patchpilot.repository.IncidentRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -21,20 +21,23 @@ import java.util.UUID;
 public class IncidentService {
     private final IncidentRepository repository;
     private final IncidentEvents events;
-    private final StubPipeline pipeline;
+    private final RepairPipeline pipeline;
+    private final PayloadRedactor redactor;
 
-    public IncidentService(IncidentRepository repository, IncidentEvents events, StubPipeline pipeline) {
+    public IncidentService(IncidentRepository repository, IncidentEvents events, RepairPipeline pipeline, PayloadRedactor redactor) {
         this.repository = repository;
         this.events = events;
         this.pipeline = pipeline;
+        this.redactor = redactor;
     }
 
     public Incident capture(Map<String, Object> payload) {
         Instant now = Instant.now();
-        Incident incident = new Incident(UUID.randomUUID().toString(), "captured", new LinkedHashMap<>(payload), now, now, null);
+        Map<String, Object> safePayload = redactor.redact(payload);
+        Incident incident = new Incident(UUID.randomUUID().toString(), "captured", safePayload, now, now, null);
         repository.save(incident);
         repository.addStep(incident.id(), "capture", "completed", Map.of("message", "Incident payload stored"));
-        repository.addArtifact(incident.id(), "incident_payload", payload);
+        repository.addArtifact(incident.id(), "incident_payload", safePayload);
         publishStatus(incident);
         pipeline.start(incident.id());
         return incident;
@@ -47,6 +50,17 @@ public class IncidentService {
         List<PipelineStep> steps = repository.stepsFor(id);
         List<Artifact> artifacts = repository.artifactsFor(id);
         return new IncidentDetail(incident, steps, artifacts);
+    }
+
+    public String patch(String id) {
+        get(id);
+        return repository.artifactsFor(id).stream()
+                .filter(artifact -> "verified_patch".equals(artifact.type()))
+                .map(artifact -> artifact.content().get("diff"))
+                .filter(java.util.Objects::nonNull)
+                .map(Object::toString)
+                .findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No verified patch is available for this incident"));
     }
 
     public Incident get(String id) {

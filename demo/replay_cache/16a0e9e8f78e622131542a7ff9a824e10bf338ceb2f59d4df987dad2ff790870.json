@@ -1,0 +1,9 @@
+{
+  "bugId": "users",
+  "filePath": "shoplite/__init__.py",
+  "expected": "            return jsonify(id=user[\"id\"], name=user[\"naem\"], email=user[\"email\"])",
+  "replacement": "            return jsonify(id=user[\"id\"], name=user[\"name\"], email=user[\"email\"])",
+  "explanation": "Correct the misspelled profile key so valid user requests return the existing name field.",
+  "expectedExceptionType": "KeyError",
+  "confidence": 0.94
+}

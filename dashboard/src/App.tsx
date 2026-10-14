@@ -95,6 +95,10 @@ export default function App() {
   const payload = detail?.incident.payload || {};
   const route = payload.request?.path || 'Unknown route';
   const exception = payload.exceptionType || 'Captured incident';
+  const patchArtifact = detail?.artifacts?.find(artifact => artifact.type === 'verified_patch');
+  const hasPatch = Boolean(patchArtifact);
+  const riskScore = patchArtifact?.content?.riskScore as number | undefined;
+  const riskTone = riskScore === undefined ? 'low' : riskScore <= 30 ? 'low' : riskScore <= 60 ? 'medium' : 'high';
 
   return <div className="shell">
     <aside className="sidebar">
@@ -137,15 +141,17 @@ export default function App() {
                 const blocked = current && ['failed','declined'].includes(detail.incident.status);
                 return <div className={`stage ${completed?'done':''} ${current?'current':''} ${blocked?'blocked':''}`} key={stage}><span className="stage-marker">{completed?<Check size={12}/>:blocked?<X size={10}/>:index+1}</span><span>{stage}</span>{current&&<i/>}</div>;
               })}</div>
+              {patchArtifact&&<div className="risk-panel"><div className={`risk-gauge ${riskTone}`} style={{'--risk':`${riskScore ?? 0}%`} as React.CSSProperties}><span>{riskScore ?? '—'}</span></div><div><small>PATCH RISK</small><b>{patchArtifact.content?.riskVerdict || 'Requires review'}</b><span>Reproduced before patch · full suite passed</span></div></div>}
               <div className="evidence-title"><b>Captured evidence</b><span>{Object.keys(payload).length} fields</span></div>
               <div className="evidence-grid"><div><small>EXCEPTION</small><b>{exception}</b></div><div><small>APP VERSION</small><b>{payload.appVersion || 'Unknown'}</b></div><div><small>REPORTED</small><b>{new Date(detail.incident.createdAt).toLocaleString()}</b></div></div>
               {detail.incident.declineReport&&<div className="decline-box"><ShieldX size={16}/><span><b>Why PatchPilot stopped</b><br/>{detail.incident.declineReport}</span></div>}
+              {hasPatch&&<button className="download-patch" onClick={()=>window.open(`${API}/api/incidents/${selected}/patch`,'_blank','noopener,noreferrer')}><GitPullRequest size={14}/> Download verified patch</button>}
               <div className="review-note"><ShieldCheck size={15}/><span>Review every change before merging. PatchPilot does not deploy.</span></div>
               <div className="action-row">{detail.incident.status==='ready_for_review'?<><button className="reject-btn" disabled={busy} onClick={()=>void act('reject')}><X size={15}/> Reject</button><button className="approve-btn" disabled={busy} onClick={()=>void act('approve')}><Check size={15}/> Approve</button></>:<button className="subtle-btn full" disabled={busy} onClick={()=>void act('retry')}><RefreshCw size={14}/> Retry pipeline</button>}</div>
             </>}
           </aside>
         </div>
-        <div className="disclaimer"><ShieldCheck size={14}/> PatchPilot is a supervised prototype. The current pipeline records incident state; automated LLM patch generation is not enabled yet.</div>
+        <div className="disclaimer"><ShieldCheck size={14}/> Known seeded bugs use deterministic replay fixes, not a live LLM. Every proposed diff still needs human approval.</div>
       </div>
     </main>
     <AnimatePresence>{demoOpen&&<><motion.div className="scrim" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} onClick={()=>setDemoOpen(false)}/><motion.aside className="demo-drawer" initial={{x:420}} animate={{x:0}} exit={{x:420}} transition={{type:'spring',damping:28}}><div className="drawer-head"><div><span className="eyebrow">LOCAL DEMO</span><h2>Break the app</h2></div><button className="icon-btn" onClick={()=>setDemoOpen(false)}><X size={18}/></button></div><p>Trigger a seeded ShopLite error. PatchPilot will capture it in the incident feed.</p><label className="field-label">CHOOSE A SCENARIO</label><div className="bug-options">{bugOptions.map(b=><button key={b.id} className={activeBug===b.id?'bug-option chosen':'bug-option'} onClick={()=>setActiveBug(b.id)}><span className="radio"/><span><b>{b.label}</b><small>{b.method} {b.path}</small></span>{b.id==='payments'&&<em>REFUSAL</em>}</button>)}</div><div className="drawer-callout"><ShieldCheck size={17}/><span>Payment errors are sensitive. The intended behavior is to refuse unsafe fixes.</span></div><button className="primary-btn drawer-trigger" disabled={busy} onClick={()=>void trigger()}><Sparkles size={16}/> {busy?'Triggering…':'Trigger selected bug'}</button><button className="subtle-btn drawer-reset" onClick={()=>void resetDemo()}><RefreshCw size={14}/> Reset demo switches</button><small className="drawer-foot">Requires ShopLite on localhost:5000 and API on localhost:8000.</small></motion.aside></>}</AnimatePresence>

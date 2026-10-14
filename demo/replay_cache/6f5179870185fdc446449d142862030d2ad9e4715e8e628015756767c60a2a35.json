@@ -1,0 +1,9 @@
+{
+  "bugId": "inventory",
+  "filePath": "shoplite/__init__.py",
+  "expected": "            _ = 1 // len(items)",
+  "replacement": "            if not items:\n                return jsonify(status=\"synced\", count=0)",
+  "explanation": "Treat an empty inventory batch as a valid no-op instead of dividing by its length.",
+  "expectedExceptionType": "ZeroDivisionError",
+  "confidence": 0.88
+}
